@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>NIKKE Style Combat Simulator</title>
+    <style>
+        body { background: #1a1a1a; display: flex; flex-direction: column; align-items: center; color: white; font-family: sans-serif; margin: 0; padding: 20px; }
+        canvas { border: 2px solid #444; background: #222; cursor: crosshair; box-shadow: 0 4px 8px rgba(0,0,0,0.5); }
+        .controls { margin-top: 15px; text-align: center; line-height: 1.6; background: rgba(0,0,0,0.7); padding: 15px; border-radius: 10px; }
+        .status { font-weight: bold; color: #ff3e3e; }
+        .assets { display: none; }
+    </style>
+</head>
+<body>
+    <h2>NIKKE 스타일 전투 시뮬레이터</h2>
+    <canvas id="simCanvas" width="800" height="450"></canvas>
+    <div class="controls">
+        <p>상태: <span id="stateText" class="status">IDLE</span> | 탄환: <span id="ammoText">6</span>/6</p>
+        <p><b>[마우스 클릭 유지]</b>: 차징 | <b>[E 키]</b>: 버스트 스킬 | <b>[R 키]</b>: 장전 (Reload)</p>
+        <small>※ 적색 원을 타격하여 버스트 게이지를 채우세요! (한 번에 2~3개씩 등장)</small>
+    </div>
+
+    <div class="assets">
+        <img id="bgImage" src="배경.png">
+        <img id="charImageIdle" src="전투시작.png"> <img id="charImageAttack" src="사격자세.png">
+        
+        <img id="reload1" src="장전1.png">
+        <img id="reload2" src="장전2.png">
+        <img id="reload3" src="장전3.png">
+
+        <img id="burst1" src="버스트 스킬1.png">
+        <img id="burst2" src="버스트 스킬2.png">
+        <img id="burst3" src="버스트 스킬3.png">
+        <img id="burst4" src="버스트 스킬4.png">
+        <img id="burst5" src="버스트 스킬5.png">
+        <img id="burst6" src="버스트 스킬6.png">
+    </div>
+
+<script>
+const canvas = document.getElementById('simCanvas');
+const ctx = canvas.getContext('2d');
+const stateText = document.getElementById('stateText');
+const ammoText = document.getElementById('ammoText');
+
+const assets = {
+    bg: document.getElementById('bgImage'),
+    idle: document.getElementById('charImageIdle'),
+    attack: document.getElementById('charImageAttack'),
+    reload: [
+        document.getElementById('reload1'), 
+        document.getElementById('reload2'), 
+        document.getElementById('reload3')
+    ],
+    burst: [
+        document.getElementById('burst1'), document.getElementById('burst2'),
+        document.getElementById('burst3'), document.getElementById('burst4'),
+        document.getElementById('burst5'), document.getElementById('burst6')
+    ]
+};
+
+let state = 'IDLE'; 
+let ammo = 6;
+const maxAmmo = 6;
+let burstGauge = 0;
+const maxBurst = 3;
+let shake = 0;
+let particles = [];
+let targets = []; 
+
+let isMouseDown = false;
+let chargeTime = 0;
+const maxChargeTime = 1500;
+let lastTimestamp = 0;
+
+let isBurstActive = false;
+let burstStartTime = 0;
+let currentBurstIndex = 0;
+
+let reloadStartTime = 0;
+const reloadDuration = 1500; 
+
+canvas.addEventListener('mousedown', () => {
+    if (isBurstActive || state === 'RELOAD') return;
+    if (ammo > 0) {
+        isMouseDown = true;
+        chargeTime = 0;
+        state = 'ATTACK';
+        stateText.innerText = "ATTACK";
+    } else { 
+        startReload(); 
+    }
+});
+
+canvas.addEventListener('mouseup', () => {
+    if (isMouseDown && state === 'ATTACK') { fire(); }
+    isMouseDown = false;
+});
+
+window.addEventListener('keydown', (e) => {
+    if (e.key.toLowerCase() === 'r' && state !== 'RELOAD' && !isBurstActive) startReload();
+    if (e.key.toLowerCase() === 'e') startBurst();
+});
+
+function fire() {
+    const chargeRatio = Math.min(chargeTime / maxChargeTime, 1);
+    ammo--;
+    ammoText.innerText = ammo;
+    shake = 5 + (chargeRatio * 10); 
+
+    for (let i = targets.length - 1; i >= 0; i--) {
+        let t = targets[i];
+        let dist = Math.hypot(mouseX - t.x, mouseY - t.y);
+        
+        if (dist < t.r) {
+            targets.splice(i, 1);
+            if (burstGauge < maxBurst) burstGauge++;
+            createExplosion(t.x, t.y, chargeRatio);
+            break; 
+        }
+    }
+
+    state = 'IDLE';
+    stateText.innerText = "IDLE";
+    chargeTime = 0;
+    
+    if (ammo <= 0) startReload();
+}
+
+function startBurst() {
+    if (burstGauge >= maxBurst && !isBurstActive) {
+        isBurstActive = true;
+        burstStartTime = performance.now();
+        burstGauge = 0; 
+        state = 'BURST';
+        stateText.innerText = "BURST";
+        shake = 0; 
+    }
+}
+
+function startReload() {
+    if (state === 'RELOAD' || isBurstActive) return;
+    state = 'RELOAD';
+    stateText.innerText = "RELOADING...";
+    isMouseDown = false;
+    reloadStartTime = performance.now(); 
+}
+
+function createExplosion(x, y, ratio) {
+    for(let i=0; i<30 * ratio; i++) {
+        particles.push({
+            x: x, y: y, vx: (Math.random()-0.5)*20, vy: (Math.random()-0.5)*20,
+            life: 40, color: '#ff3e3e'
+        });
+    }
+}
+
+let mouseX = 400, mouseY = 225;
+canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mouseX = e.clientX - rect.left;
+    mouseY = e.clientY - rect.top;
+});
+
+function update(timestamp) {
+    const deltaTime = timestamp - lastTimestamp;
+    lastTimestamp = timestamp;
+
+    if (shake > 0) shake *= 0.85;
+
+    if (state === 'RELOAD') {
+        const elapsed = timestamp - reloadStartTime;
+        if (elapsed >= reloadDuration) {
+            ammo = maxAmmo;
+            ammoText.innerText = ammo;
+            state = 'IDLE';
+            stateText.innerText = "IDLE";
+        }
+    }
+
+    if (isBurstActive) {
+        const elapsed = timestamp - burstStartTime;
+        currentBurstIndex = Math.floor(elapsed / 500); 
+        
+        if (currentBurstIndex >= 6) {
+            isBurstActive = false;
+            state = 'IDLE';
+            stateText.innerText = "IDLE";
+            targets = []; 
+        }
+    } else if (state !== 'RELOAD') {
+        if (isMouseDown && state === 'ATTACK') {
+            chargeTime = Math.min(chargeTime + deltaTime, maxChargeTime);
+        }
+        
+        if (targets.length === 0 && Math.random() < 0.04) {
+            const spawnCount = Math.floor(Math.random() * 2) + 2; 
+            for (let i = 0; i < spawnCount; i++) {
+                targets.push({
+                    x: 150 + Math.random() * 500, 
+                    y: 80 + Math.random() * 150,  
+                    r: 35,
+                    timer: 150 + Math.random() * 30 
+                });
+            }
+        }
+
+        for (let i = targets.length - 1; i >= 0; i--) {
+            targets[i].timer--;
+            if (targets[i].timer <= 0) {
+                targets.splice(i, 1); 
+                shake = 15; 
+            }
+        }
+    }
+
+    particles = particles.filter(p => p.life > 0);
+    particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.life--; });
+
+    draw(timestamp);
+    requestAnimationFrame(update);
+}
+
+function draw(timestamp = 0) {
+    ctx.save();
+    
+    if (!isBurstActive && shake > 0.5) {
+        ctx.translate((Math.random()-0.5)*shake, (Math.random()-0.5)*shake);
+    }
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (isBurstActive) {
+        // 버스트 컷신
+        const currentImg = assets.burst[currentBurstIndex];
+        const elapsed = timestamp - burstStartTime;
+        
+        if (currentImg && currentImg.complete && currentImg.naturalWidth > 0) {
+            ctx.save();
+            const zoomProgress = (elapsed % 500) / 500; 
+            const scale = 1 + (zoomProgress * 0.05); 
+            
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.scale(scale, scale);
+            ctx.translate(-canvas.width / 2, -canvas.height / 2);
+            ctx.drawImage(currentImg, 0, 0, canvas.width, canvas.height);
+            ctx.restore();
+
+            if (zoomProgress < 0.2) { 
+                ctx.fillStyle = `rgba(255, 255, 255, ${0.4 * (1 - zoomProgress / 0.2)})`;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+            }
+        }
+    } else {
+        // 배경 그리기
+        if (assets.bg && assets.bg.complete && assets.bg.naturalWidth > 0) {
+            ctx.drawImage(assets.bg, 0, 0, canvas.width, canvas.height);
+        } else {
+            ctx.fillStyle = "#333";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        const imgX = 240, imgY = 130; 
+        let img;
+
+        if (state === 'RELOAD') {
+            const elapsed = timestamp - reloadStartTime;
+            let reloadIndex = Math.floor(elapsed / 500); 
+            if (reloadIndex > 2) reloadIndex = 2; 
+            img = assets.reload[reloadIndex];
+        } else if (state === 'ATTACK') {
+            img = assets.attack;
+        } else {
+            img = assets.idle;
+        }
+
+        // ✨ [핵심] 캐릭터 발밑에 자연스러운 반투명 그림자 추가
+        ctx.save();
+        ctx.fillStyle = "rgba(0, 0, 0, 0.5)"; // 반투명 검은색
+        ctx.beginPath();
+        // 타원 그리기: x 중심, y 중심, 가로 반지름, 세로 반지름, 회전각, 시작각, 끝각
+        ctx.ellipse(imgX + 160, imgY + 400, 100, 15, 0, 0, Math.PI * 2); 
+        ctx.fill();
+        ctx.restore();
+
+        // 투명 PNG 캐릭터 이미지 그리기
+        if (img && img.complete && img.naturalWidth > 0) {
+            ctx.drawImage(img, imgX, imgY, 320, 420);
+        }
+
+        if (state !== 'RELOAD') {
+            targets.forEach(t => {
+                ctx.beginPath();
+                ctx.arc(t.x, t.y, t.r, 0, Math.PI*2);
+                ctx.strokeStyle = "#ff3e3e"; 
+                ctx.lineWidth = 4; 
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.arc(t.x, t.y, t.r - 6, -Math.PI/2, (-Math.PI/2) + (Math.PI*2 * (t.timer/180)));
+                ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+                ctx.lineWidth = 4;
+                ctx.stroke();
+            });
+
+            const chargeRatio = chargeTime / maxChargeTime;
+            ctx.strokeStyle = (chargeRatio >= 1) ? "#00ffff" : "#00ff00";
+            ctx.beginPath();
+            ctx.arc(mouseX, mouseY, 20 + (1 - chargeRatio) * 20, 0, Math.PI * 2);
+            ctx.stroke();
+
+            if (isMouseDown && state === 'ATTACK') {
+                ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(mouseX - 30, mouseY + 40, 60, 8);
+                ctx.fillStyle = (chargeRatio >= 1) ? "#00ffff" : "#fff";
+                ctx.fillRect(mouseX - 30, mouseY + 40, 60 * chargeRatio, 8);
+            }
+        } else {
+            ctx.strokeStyle = "red";
+            ctx.beginPath();
+            ctx.arc(mouseX, mouseY, 20, 0, Math.PI * 2);
+            ctx.stroke();
+            
+            ctx.fillStyle = "red";
+            ctx.font = "bold 14px sans-serif";
+            ctx.fillText("RELOADING", mouseX - 40, mouseY + 40);
+        }
+
+        // 버스트 게이지 UI
+        const gaugeX = 650, gaugeY = 150, gaugeWidth = 30, gaugeHeight = 150;
+        ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+        ctx.fillRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
+        ctx.strokeStyle = "#fff"; ctx.lineWidth = 2;
+        ctx.strokeRect(gaugeX, gaugeY, gaugeWidth, gaugeHeight);
+
+        const cellHeight = gaugeHeight / maxBurst;
+        for (let i = 0; i < burstGauge; i++) {
+            ctx.fillStyle = (burstGauge === maxBurst) ? "#00ffff" : "#ffcc00";
+            ctx.fillRect(gaugeX + 2, gaugeY + gaugeHeight - (i + 1) * cellHeight + 2, gaugeWidth - 4, cellHeight - 4);
+        }
+        
+        ctx.fillStyle = "#fff";
+        ctx.font = "bold 16px sans-serif";
+        ctx.fillText("BURST", gaugeX - 10, gaugeY + gaugeHeight + 25);
+
+        if (burstGauge >= maxBurst && state !== 'RELOAD') {
+            ctx.fillStyle = "#00ffff";
+            ctx.font = "bold 20px sans-serif";
+            ctx.fillText("PRESS [E]", gaugeX - 30, gaugeY - 10);
+            ctx.strokeStyle = `rgba(0, 255, 255, ${0.5 + 0.5 * Math.sin(timestamp / 150)})`;
+            ctx.lineWidth = 4;
+            ctx.strokeRect(gaugeX - 2, gaugeY - 2, gaugeWidth + 4, gaugeHeight + 4);
+        }
+    }
+
+    particles.forEach(p => {
+        ctx.fillStyle = p.color; ctx.globalAlpha = p.life / 40;
+        ctx.fillRect(p.x, p.y, 4, 4);
+    });
+
+    ctx.restore();
+}
+
+requestAnimationFrame(update);
+</script>
+</body>
+</html>
