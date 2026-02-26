@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>NIKKE Style Combat Simulator</title>
+    <title>아스트라 전투 시뮬레이션</title>
     <style>
         body { background: #1a1a1a; display: flex; flex-direction: column; align-items: center; color: white; font-family: sans-serif; margin: 0; padding: 20px; }
         canvas { border: 2px solid #444; background: #222; cursor: crosshair; box-shadow: 0 4px 8px rgba(0,0,0,0.5); }
@@ -12,12 +12,12 @@
     </style>
 </head>
 <body>
-    <h2>NIKKE 스타일 전투 시뮬레이터</h2>
+    <h2>아스트라 전투 시뮬레이션</h2>
     <canvas id="simCanvas" width="800" height="450"></canvas>
     <div class="controls">
         <p>상태: <span id="stateText" class="status">IDLE</span> | 탄환: <span id="ammoText">6</span>/6</p>
         <p><b>[마우스 클릭 유지]</b>: 차징 | <b>[E 키]</b>: 버스트 스킬 | <b>[R 키]</b>: 장전 (Reload)</p>
-        <small>※ 적색 원을 타격하여 버스트 게이지를 채우세요! (한 번에 2~3개씩 등장)</small>
+        <small>※ 적색 원을 타격하여 버스트 게이지를 채우세요!</small>
     </div>
 
     <div class="assets">
@@ -362,4 +362,5 @@ function draw(timestamp = 0) {
 requestAnimationFrame(update);
 </script>
 </body>
+
 </html>
