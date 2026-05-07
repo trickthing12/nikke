@@ -22,18 +22,15 @@
 
     <div class="assets">
         <img id="bgImage" src="이미지/배경.png">
-        <img id="charImageIdle" src="이미지/전투시작.png"> <img id="charImageAttack" src="이미지/사격자세.png">
+        <img id="charImageIdle" src="이미지/전투시작.png">
+        <img id="charImageAttack" src="이미지/사격자세.png">
         
         <img id="reload1" src="이미지/장전1.png">
         <img id="reload2" src="이미지/장전2.png">
         <img id="reload3" src="이미지/장전3.png">
 
-        <img id="burst1" src="이미지/버스트 스킬1.png">
-        <img id="burst2" src="이미지/버스트 스킬2.png">
-        <img id="burst3" src="이미지/버스트 스킬3.png">
-        <img id="burst4" src="이미지/버스트 스킬4.png">
-        <img id="burst5" src="이미지/버스트 스킬5.png">
-        <img id="burst6" src="이미지/버스트 스킬6.png">
+        <!-- 버스트 스킬 영상 (파일명을 실제 영상 파일에 맞게 수정해주세요) -->
+        <video id="burstVideo" src="이미지/버스트스킬.mp4" preload="auto" muted playsinline></video>
     </div>
 
 <script>
@@ -51,11 +48,7 @@ const assets = {
         document.getElementById('reload2'), 
         document.getElementById('reload3')
     ],
-    burst: [
-        document.getElementById('burst1'), document.getElementById('burst2'),
-        document.getElementById('burst3'), document.getElementById('burst4'),
-        document.getElementById('burst5'), document.getElementById('burst6')
-    ]
+    burstVideo: document.getElementById('burstVideo')
 };
 
 let state = 'IDLE'; 
@@ -74,10 +67,17 @@ let lastTimestamp = 0;
 
 let isBurstActive = false;
 let burstStartTime = 0;
-let currentBurstIndex = 0;
 
 let reloadStartTime = 0;
 const reloadDuration = 1500; 
+
+// 영상 종료 시 자동으로 버스트 상태 해제
+assets.burstVideo.addEventListener('ended', () => {
+    isBurstActive = false;
+    state = 'IDLE';
+    stateText.innerText = "IDLE";
+    targets = [];
+});
 
 canvas.addEventListener('mousedown', () => {
     if (isBurstActive || state === 'RELOAD') return;
@@ -133,7 +133,21 @@ function startBurst() {
         burstGauge = 0; 
         state = 'BURST';
         stateText.innerText = "BURST";
-        shake = 0; 
+        shake = 0;
+
+        // 영상을 처음부터 재생
+        const video = assets.burstVideo;
+        video.currentTime = 0;
+        const playPromise = video.play();
+        if (playPromise !== undefined) {
+            playPromise.catch(err => {
+                console.warn("버스트 영상 재생 실패:", err);
+                // 재생에 실패하면 바로 IDLE 복귀
+                isBurstActive = false;
+                state = 'IDLE';
+                stateText.innerText = "IDLE";
+            });
+        }
     }
 }
 
@@ -177,17 +191,7 @@ function update(timestamp) {
         }
     }
 
-    if (isBurstActive) {
-        const elapsed = timestamp - burstStartTime;
-        currentBurstIndex = Math.floor(elapsed / 500); 
-        
-        if (currentBurstIndex >= 6) {
-            isBurstActive = false;
-            state = 'IDLE';
-            stateText.innerText = "IDLE";
-            targets = []; 
-        }
-    } else if (state !== 'RELOAD') {
+    if (!isBurstActive && state !== 'RELOAD') {
         if (isMouseDown && state === 'ATTACK') {
             chargeTime = Math.min(chargeTime + deltaTime, maxChargeTime);
         }
@@ -230,25 +234,46 @@ function draw(timestamp = 0) {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
     if (isBurstActive) {
-        // 버스트 컷신
-        const currentImg = assets.burst[currentBurstIndex];
+        // 버스트 컷신 - 영상의 현재 프레임을 캔버스에 그림
+        const video = assets.burstVideo;
         const elapsed = timestamp - burstStartTime;
         
-        if (currentImg && currentImg.complete && currentImg.naturalWidth > 0) {
-            ctx.save();
-            const zoomProgress = (elapsed % 500) / 500; 
-            const scale = 1 + (zoomProgress * 0.05); 
+        if (video.readyState >= 2) { // HAVE_CURRENT_DATA 이상
+            // 비디오를 캔버스 크기에 맞춰 그리기 (cover 방식: 비율 유지하며 꽉 채움)
+            const videoRatio = video.videoWidth / video.videoHeight;
+            const canvasRatio = canvas.width / canvas.height;
             
-            ctx.translate(canvas.width / 2, canvas.height / 2);
-            ctx.scale(scale, scale);
-            ctx.translate(-canvas.width / 2, -canvas.height / 2);
-            ctx.drawImage(currentImg, 0, 0, canvas.width, canvas.height);
-            ctx.restore();
+            let drawW, drawH, drawX, drawY;
+            if (videoRatio > canvasRatio) {
+                // 영상이 더 가로로 길면 -> 세로 기준으로 맞춤
+                drawH = canvas.height;
+                drawW = drawH * videoRatio;
+                drawX = (canvas.width - drawW) / 2;
+                drawY = 0;
+            } else {
+                // 영상이 더 세로로 길면 -> 가로 기준으로 맞춤
+                drawW = canvas.width;
+                drawH = drawW / videoRatio;
+                drawX = 0;
+                drawY = (canvas.height - drawH) / 2;
+            }
+            
+            ctx.drawImage(video, drawX, drawY, drawW, drawH);
 
-            if (zoomProgress < 0.2) { 
-                ctx.fillStyle = `rgba(255, 255, 255, ${0.4 * (1 - zoomProgress / 0.2)})`;
+            // 시작 후 0.3초 동안 화이트 플래시 효과 유지
+            if (elapsed < 300) {
+                ctx.fillStyle = `rgba(255, 255, 255, ${0.6 * (1 - elapsed / 300)})`;
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
             }
+        } else {
+            // 영상이 아직 로드 중일 때 검은 화면 + 로딩 표시
+            ctx.fillStyle = "#000";
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = "#fff";
+            ctx.font = "bold 24px sans-serif";
+            ctx.textAlign = "center";
+            ctx.fillText("LOADING BURST...", canvas.width / 2, canvas.height / 2);
+            ctx.textAlign = "start";
         }
     } else {
         // 배경 그리기
@@ -273,16 +298,15 @@ function draw(timestamp = 0) {
             img = assets.idle;
         }
 
-        // ✨ [핵심] 캐릭터 발밑에 자연스러운 반투명 그림자 추가
+        // 캐릭터 발밑 그림자
         ctx.save();
-        ctx.fillStyle = "rgba(0, 0, 0, 0.5)"; // 반투명 검은색
+        ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
         ctx.beginPath();
-        // 타원 그리기: x 중심, y 중심, 가로 반지름, 세로 반지름, 회전각, 시작각, 끝각
         ctx.ellipse(imgX + 160, imgY + 400, 100, 15, 0, 0, Math.PI * 2); 
         ctx.fill();
         ctx.restore();
 
-        // 투명 PNG 캐릭터 이미지 그리기
+        // 캐릭터 이미지
         if (img && img.complete && img.naturalWidth > 0) {
             ctx.drawImage(img, imgX, imgY, 320, 420);
         }
@@ -364,7 +388,3 @@ requestAnimationFrame(update);
 </body>
 
 </html>
-
-
-
-
